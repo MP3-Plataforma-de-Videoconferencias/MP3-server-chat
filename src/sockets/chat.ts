@@ -1,66 +1,87 @@
 import { Server, Socket } from "socket.io";
 
 /**
- * Message data structure for chat communication.
- * 
- * @typedef {Object} MessageData
- * @property {string} message - The content of the message
- * @property {string} [userId] - Optional user identifier who sent the message
- * @property {string} [username] - Optional username of the sender
- * @property {number} [timestamp] - Optional timestamp when the message was sent
- * @property {string} [roomId] - Optional room identifier for targeted messages
- */
-
-/**
- * Registers and handles chat-related Socket.IO events for real-time messaging.
- * 
- * This function sets up event listeners for a specific socket connection to handle
- * chat functionality. When a client sends a message through the "sendMessage" event,
- * the server logs it and broadcasts it to all connected clients via the "receiveMessage" event.
- * 
- * @param {Server} io - The Socket.IO server instance used to broadcast messages to all clients.
- * @param {Socket} socket - The individual socket connection representing a single client.
- * 
- * @returns {void} This function doesn't return a value.
- * 
+ * Registers and handles chat events for a specific socket connection,
+ * enabling real-time communication **by room** instead of globally.
+ *
+ * This module allows:
+ * - Joining chat rooms
+ * - Sending messages to a specific room
+ * - Broadcasting messages only to users inside that room
+ *
+ * @param io - The Socket.IO server instance
+ * @param socket - The current client connection
+ *
  * @example
- * // Setup chat events for a new connection
- * io.on("connection", (socket) => {
- *   console.log("New client connected:", socket.id);
- *   chatEvents(io, socket);
- * });
- * 
+ * // Client → join a room
+ * socket.emit("joinRoom", "room123");
+ *
  * @example
- * // Client-side usage (for reference)
- * // Sending a message
+ * // Client → send a message to a room
  * socket.emit("sendMessage", {
- *   message: "Hello, World!",
- *   userId: "user123",
- *   username: "JohnDoe",
+ *   message: "Hola!",
+ *   roomId: "room123",
+ *   userId: "abc123",
+ *   username: "John Doe",
  *   timestamp: Date.now()
  * });
- * 
- * // Receiving messages
- * socket.on("receiveMessage", (messageData) => {
- *   console.log("New message:", messageData);
+ *
+ * @example
+ * // Client → listen for messages in that room
+ * socket.on("receiveMessage", (msg) => {
+ *   console.log("Nuevo mensaje:", msg);
  * });
- * 
- * @fires socket#sendMessage - Triggered when a client sends a message
- * @listens socket#sendMessage - Listens for incoming messages from clients
- * @emits io#receiveMessage - Broadcasts the message to all connected clients
- * 
- * @remarks
- * - Messages are broadcast to ALL connected clients, including the sender
- * - The messageData structure is flexible and can contain any properties
- * - Consider adding validation for messageData to ensure data integrity
- * - For production use, implement authentication and message sanitization
- * - Messages are logged to console for debugging purposes
- * 
  */
 export function chatEvents(io: Server, socket: Socket) {
-  // Messages handler
+
+  /**
+   * Handles room joining.
+   *
+   * The client must emit:
+   *    socket.emit("joinRoom", roomId)
+   *
+   * This ensures the socket is added to the room and can receive
+   * messages that belong ONLY to that room.
+   *
+   * @event joinRoom
+   * @param roomId - The unique identifier of the room
+   */
+  socket.on("joinRoom", (roomId: string) => {
+    socket.join(roomId);
+    console.log(`Socket ${socket.id} joined room ${roomId}`);
+  });
+
+  /**
+   * Handles sending messages *to specific rooms*.
+   *
+   * Message structure must include:
+   *   { message, roomId, userId, username, timestamp }
+   *
+   * If roomId is missing, the server rejects the message.
+   *
+   * @event sendMessage
+   * @param messageData - Object containing message information
+   */
   socket.on("sendMessage", (messageData) => {
-    console.log("Message received:", messageData);
-    io.emit("receiveMessage", messageData);
+    const { roomId } = messageData;
+
+    if (!roomId) {
+      console.error("Message received without roomId:", messageData);
+      return;
+    }
+
+    console.log(`Message to room ${roomId}:`, messageData);
+
+    /**
+     * Emits the message ONLY to the users inside the room.
+     * 
+     * Important:
+     *    io.to(roomId).emit(...)  --> broadcast to that room only
+     *    io.emit(...)             --> broadcast to ALL (not desired)
+     *
+     * @event receiveMessage
+     */
+    io.to(roomId).emit("receiveMessage", messageData);
   });
 }
+
